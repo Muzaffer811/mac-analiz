@@ -1,0 +1,101 @@
+import math
+import streamlit as st
+
+def poisson_olasilik(k, lmbda):
+    """Poisson dağılımı formülü: k adet gol olma olasılığı"""
+    return (math.pow(lmbda, k) * math.exp(-lmbda)) / math.factorial(k)
+
+def mac_analiz_et(ev_atilan_gol_ort, ev_yenilen_gol_ort, dep_atilan_gol_ort, dep_yenilen_gol_ort):
+    # Beklenen gol sayıları (xG tahmini)
+    ev_beklenen_gol = (ev_atilan_gol_ort + dep_yenilen_gol_ort) / 2
+    dep_beklenen_gol = (dep_atilan_gol_ort + ev_yenilen_gol_ort) / 2
+
+    ev_win_prob = 0.0
+    beraberlik_prob = 0.0
+    dep_win_prob = 0.0
+
+    ust_25_prob = 0.0
+    kg_var_prob = 0.0
+
+    skor_olasiliklari = []
+
+    # 0-5 arası muhtemel skor matrisi hesabı
+    for ev_gol in range(6):
+        for dep_gol in range(6):
+            p = poisson_olasilik(ev_gol, ev_beklenen_gol) * poisson_olasilik(dep_gol, dep_beklenen_gol)
+            
+            # Skor listesine ekle
+            skor_olasiliklari.append((f"{ev_gol} - {dep_gol}", round(p * 100, 1)))
+
+            # Maç Sonucu
+            if ev_gol > dep_gol:
+                ev_win_prob += p
+            elif ev_gol == dep_gol:
+                beraberlik_prob += p
+            else:
+                dep_win_prob += p
+
+            # 2.5 Alt / Üst
+            if (ev_gol + dep_gol) > 2.5:
+                ust_25_prob += p
+
+            # Karşılıklı Gol (KG Var / Yok)
+            if ev_gol > 0 and dep_gol > 0:
+                kg_var_prob += p
+
+    # En yüksek olasılıklı ilk 3 skoru sırala
+    skor_olasiliklari.sort(key=lambda x: x[1], reverse=True)
+    en_olasi_skorlar = skor_olasiliklari[:3]
+
+    return {
+        "ev_xg": round(ev_beklenen_gol, 2),
+        "dep_xg": round(dep_beklenen_gol, 2),
+        "ev_galibiyet": round(ev_win_prob * 100, 1),
+        "beraberlik": round(beraberlik_prob * 100, 1),
+        "dep_galibiyet": round(dep_win_prob * 100, 1),
+        "ust_25": round(ust_25_prob * 100, 1),
+        "alt_25": round((1 - ust_25_prob) * 100, 1),
+        "kg_var": round(kg_var_prob * 100, 1),
+        "kg_yok": round((1 - kg_var_prob) * 100, 1),
+        "en_olasi_skorlar": en_olasi_skorlar
+    }
+
+# --- STREAMLIT ARAYÜZÜ ---
+st.set_page_config(page_title="Maç Analiz Sistemi", layout="centered")
+st.title("⚽ Poisson Maç Analiz Sistemi")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("🏠 Ev Sahibi")
+    ev_atilan = st.number_input("Atılan Gol Ortalaması (Ev)", value=1.8, step=0.1)
+    ev_yenilen = st.number_input("Yenilen Gol Ortalaması (Ev)", value=0.9, step=0.1)
+
+with col2:
+    st.subheader("✈️ Deplasman")
+    dep_atilan = st.number_input("Atılan Gol Ortalaması (Dep)", value=1.2, step=0.1)
+    dep_yenilen = st.number_input("Yenilen Gol Ortalaması (Dep)", value=1.4, step=0.1)
+
+if st.button("📊 Maçı Analiz Et", use_container_width=True):
+    sonuc = mac_analiz_et(ev_atilan, ev_yenilen, dep_atilan, dep_yenilen)
+    
+    st.markdown("---")
+    st.subheader("📈 Beklenen Goller (xG)")
+    c1, c2 = st.columns(2)
+    c1.metric("Ev Sahibi xG", sonuc['ev_xg'])
+    c2.metric("Deplasman xG", sonuc['dep_xg'])
+
+    st.subheader("🎯 Maç Sonucu Olasılıkları")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("1 (Ev Galibiyeti)", f"%{sonuc['ev_galibiyet']}")
+    m2.metric("X (Beraberlik)", f"%{sonuc['beraberlik']}")
+    m3.metric("2 (Deplasman)", f"%{sonuc['dep_galibiyet']}")
+
+    st.subheader("⚽ Gol & KG Bahisleri")
+    g1, g2 = st.columns(2)
+    g1.write(f"**2.5 Üst:** %{sonuc['ust_25']} | **2.5 Alt:** %{sonuc['alt_25']}")
+    g2.write(f"**KG Var:** %{sonuc['kg_var']} | **KG Yok:** %{sonuc['kg_yok']}")
+
+    st.subheader("🔥 En Olası 3 Skor Tahmini")
+    for skor, olasilik in sonuc['en_olasi_skorlar']:
+        st.write(f"• **{skor}** → Olasılık: %{olasilik}")
